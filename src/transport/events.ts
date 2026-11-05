@@ -34,6 +34,7 @@ export interface ChunkEvent {
 export interface MessageEvent {
   type: 'assistant/message';
   content: Array<{ type: string; text?: string }>;
+  usage?: { inputTokens: number; outputTokens: number; totalTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number };
 }
 
 /** tool/call 事件 */
@@ -102,7 +103,8 @@ export function parseEvent(raw: RawSessionEvent): OutboundEvent | undefined {
         message?: { content?: Array<{ type: string; text?: string }> };
       }).message;
       if (message === undefined || !Array.isArray(message.content)) return undefined;
-      return { type: 'assistant/message', content: message.content };
+      const usage = (raw.data as { usage?: MessageEvent['usage'] }).usage;
+      return { type: 'assistant/message', content: message.content, ...(usage === undefined ? {} : { usage }) };
     }
 
     case 'tool/call': {
