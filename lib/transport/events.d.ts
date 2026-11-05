@@ -39,6 +39,13 @@ export interface MessageEvent {
         type: string;
         text?: string;
     }>;
+    usage?: {
+        inputTokens: number;
+        outputTokens: number;
+        totalTokens?: number;
+        cacheReadTokens?: number;
+        cacheWriteTokens?: number;
+    };
 }
 /** tool/call 事件 */
 export interface ToolCallEvent {
