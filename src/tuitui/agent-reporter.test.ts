@@ -27,7 +27,7 @@ function createFakeClient(options: { throwOnBuild?: boolean } = {}) {
       buildContext: (args: any) => {
         buildCalls.push(args);
         if (options.throwOnBuild) throw new Error('bad context');
-        return { sessionKey: `sk:${args.target.type}`, messageId: args.messageId };
+        return { sessionKey: `sk:${args.target.type}`, messageId: args.messageId, runId: `run-${buildCalls.length}` };
       },
       report: {
         message_received: record('message_received'),
@@ -71,7 +71,7 @@ describe('buildAgentContext', () => {
     const context = buildAgentContext(client, c2c, 'm-1');
 
     expect(buildCalls).toEqual([{ target: { type: 'direct', account: 'zhangsan' }, messageId: 'm-1' }]);
-    expect(context).toEqual({ sessionKey: 'sk:direct', messageId: 'm-1' });
+    expect(context).toEqual({ sessionKey: 'sk:direct', messageId: 'm-1', runId: 'run-1' });
   });
 
   it('群聊用 group(groupId)', () => {
@@ -80,7 +80,7 @@ describe('buildAgentContext', () => {
     const context = buildAgentContext(client, group, 'm-2');
 
     expect(buildCalls).toEqual([{ target: { type: 'group', groupId: 'g-1' }, messageId: 'm-2' }]);
-    expect(context).toEqual({ sessionKey: 'sk:group', messageId: 'm-2' });
+    expect(context).toEqual({ sessionKey: 'sk:group', messageId: 'm-2', runId: 'run-1' });
   });
 
   it('帖子用 channel(channelId+postId)，回帖带 parentPostId', () => {
@@ -137,7 +137,7 @@ describe('TuituiAgentStepReporter 上报载荷', () => {
     reporter.agentEnd(group, 'm-1');
 
     expect(reports.map((item) => item.event)).toEqual(['message_received', 'agent_end']);
-    expect(reports[0]?.args).toEqual([{ sessionKey: 'sk:group', messageId: 'm-1' }]);
+    expect(reports[0]?.args).toEqual([{ sessionKey: 'sk:group', messageId: 'm-1', runId: 'run-1' }]);
   });
 
   it('llmOutput 上报正文/thinking 与空 usage', () => {
@@ -146,8 +146,8 @@ describe('TuituiAgentStepReporter 上报载荷', () => {
 
     reporter.llmOutput(c2c, 'm-1', ['第一段', '第二段'], '思考中');
 
-    expect(reports[0]?.event).toBe('llm_output');
-    expect(reports[0]?.args[1]).toEqual({
+    expect(reports[1]?.event).toBe('llm_output');
+    expect(reports[1]?.args[1]).toEqual({
       assistantTexts: ['第一段', '第二段'],
       thinking: '思考中',
       usage: {},
@@ -160,8 +160,8 @@ describe('TuituiAgentStepReporter 上报载荷', () => {
 
     reporter.toolStart(group, 'm-1', report);
 
-    expect(reports[0]?.event).toBe('before_tool_call');
-    expect(reports[0]?.args[1]).toEqual({ toolCallId: 'call-1', toolName: 'read_file' });
+    expect(reports[1]?.event).toBe('before_tool_call');
+    expect(reports[1]?.args[1]).toEqual({ toolCallId: 'call-1', toolName: 'read_file' });
   });
 
   it('includeToolPayload=true 时原样带上参数', () => {
@@ -170,7 +170,7 @@ describe('TuituiAgentStepReporter 上报载荷', () => {
 
     reporter.toolStart(group, 'm-1', report);
 
-    expect(reports[0]?.args[1]).toMatchObject({
+    expect(reports[1]?.args[1]).toMatchObject({
       toolCallId: 'call-1',
       toolName: 'read_file',
       params: { path: '/tmp/a.txt' },
@@ -183,8 +183,8 @@ describe('TuituiAgentStepReporter 上报载荷', () => {
 
     reporter.toolEnd(group, 'm-1', { ...report, ok: false });
 
-    expect(reports[0]?.event).toBe('after_tool_call');
-    expect(reports[0]?.args[1]).toEqual({ toolCallId: 'call-1', toolName: 'read_file', result: { ok: false } });
+    expect(reports[1]?.event).toBe('after_tool_call');
+    expect(reports[1]?.args[1]).toEqual({ toolCallId: 'call-1', toolName: 'read_file', result: { ok: false } });
   });
 
   it('includeToolPayload=true 时结果按 maxResultChars 截断', () => {
@@ -197,7 +197,7 @@ describe('TuituiAgentStepReporter 上报载荷', () => {
 
     reporter.toolEnd(group, 'm-1', { ...report, result: 'abcdefghij' });
 
-    expect(reports[0]?.args[1]).toEqual({
+    expect(reports[1]?.args[1]).toEqual({
       toolCallId: 'call-1',
       toolName: 'read_file',
       result: 'abcdefg…',
@@ -237,6 +237,22 @@ describe('TuituiAgentStepReporter 上报载荷', () => {
 
     expect(buildCalls).toHaveLength(0);
     expect(reports).toHaveLength(0);
+  });
+
+  it('同一消息的模型、工具和完成事件使用同一个 runId，下一次运行重新生成', () => {
+    const { client, reports, buildCalls } = createFakeClient();
+    const reporter = createAgentStepReporter(client, createConfig(), createLogger())!;
+    reporter.llmOutput(group, 'm-1', [], '', { input: 10, output: 2, total: 12 });
+    reporter.toolStart(group, 'm-1', report);
+    reporter.toolEnd(group, 'm-1', report);
+    reporter.agentEnd(group, 'm-1');
+    expect(reports.map((item) => item.event)).toEqual(['message_received', 'llm_output', 'before_tool_call', 'after_tool_call', 'agent_end']);
+    expect(reports.map((item) => (item.args[0] as { runId: string }).runId)).toEqual(Array(5).fill('run-1'));
+    expect(reports[1]?.args[1]).toMatchObject({ usage: { input: 10, output: 2, total: 12 } });
+    reporter.llmOutput(group, 'm-2', ['ok'], '');
+    reporter.agentEnd(group, 'm-2');
+    expect(buildCalls).toHaveLength(2);
+    expect((reports[5]?.args[0] as { runId: string }).runId).toBe('run-2');
   });
 });
 
