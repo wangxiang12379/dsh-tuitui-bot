@@ -188,9 +188,9 @@ class OutboundRouter {
 
   /** 完整 assistant 消息：有流式 buffer 则 flush，否则直接发送文本块 */
   private onMessage(sessionId: string, record: SessionRecord, event: MessageEvent): void {
+    this.reportLlmOutput(record, event);
     const buffer = this.buffers.get(sessionId);
     if (buffer !== undefined && buffer.text.trim()) {
-      this.reportLlmOutput(record, event);
       this.trackText(sessionId, buffer.flush());
       this.buffers.delete(sessionId);
       return;
@@ -203,7 +203,6 @@ class OutboundRouter {
     const fullText = textParts.join('\n');
     if (!fullText.trim()) return;
 
-    this.reportLlmOutput(record, event);
     this.trackText(sessionId, this.send(record, fullText, 'sendMarkdown'));
     this.buffers.delete(sessionId);
   }
@@ -214,7 +213,14 @@ class OutboundRouter {
     const texts = event.content
       .filter((block) => block.type === 'text' && Boolean(block.text))
       .map((block) => block.text as string);
-    this.agentSteps.llmOutput(record.replyTarget, agentMessageId(record.replyTarget), texts, '');
+    const usage = event.usage;
+    this.agentSteps.llmOutput(record.replyTarget, agentMessageId(record.replyTarget), texts, '', usage === undefined ? {} : {
+      input: usage.inputTokens,
+      output: usage.outputTokens,
+      ...(usage.totalTokens === undefined ? {} : { total: usage.totalTokens }),
+      ...(usage.cacheReadTokens === undefined ? {} : { cacheRead: usage.cacheReadTokens }),
+      ...(usage.cacheWriteTokens === undefined ? {} : { cacheWrite: usage.cacheWriteTokens }),
+    });
   }
 
   /** 记录每会话最后一笔在途文本任务（自身吞错：错误已由 send/flush 内部记录） */
@@ -297,6 +303,7 @@ class OutboundRouter {
    * 外层轮次失败不撤销已完成的声明（宿主契约），故失败轮的文件仍投递。
    */
   private onTurnEnd(sessionId: string, record: SessionRecord, event: TurnEndEvent): void {
+    const reportTarget = { ...record.replyTarget };
     const buffer = this.buffers.get(sessionId);
     // 文本 flush 可等待，保证回复先于交付文件到达用户
     let flushTask: Promise<void> = Promise.resolve();
@@ -317,15 +324,20 @@ class OutboundRouter {
 
     const failure = extractTurnError(event.reason);
     void (async () => {
-      await Promise.all([flushTask, pending]);
-      if (failure !== undefined && !SILENT_TURN_ERROR_CODES.has(failure.code)) {
-        await this.send(record, `⚠️ 本轮异常结束\n\`${failure.code}\`: ${failure.message}`, 'sendTurnEndError');
+      try {
+        await Promise.all([flushTask, pending]);
+        if (failure !== undefined && !SILENT_TURN_ERROR_CODES.has(failure.code)) {
+          await this.send(record, `⚠️ 本轮异常结束\n\`${failure.code}\`: ${failure.message}`, 'sendTurnEndError');
+        }
+        if (files.length > 0 && this.deliverer !== undefined) {
+          await this.deliverer.deliver(record, files);
+        }
+      } catch (error) {
+        this.logger.error(`im-tuitui: turn/end delivery failed: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        this.agentSteps?.agentEnd(reportTarget, agentMessageId(reportTarget));
+        this.logger.debug(`im-tuitui: turn/end sessionId=${sessionId}`);
       }
-      if (files.length > 0 && this.deliverer !== undefined) {
-        await this.deliverer.deliver(record, files);
-      }
-      this.agentSteps?.agentEnd(record.replyTarget, agentMessageId(record.replyTarget));
-      this.logger.debug(`im-tuitui: turn/end sessionId=${sessionId}`);
     })();
   }
 

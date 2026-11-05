@@ -10,6 +10,10 @@ Accumulates changes that have not shipped yet. **PRs add entries here; do not to
 number.** Maintainers turn this heading into a version + date and bump `package.json` at release
 time (see [CONTRIBUTING §8](./CONTRIBUTING.md)).
 
+### Fixed
+
+- Fix execution progress getting stuck, steps being split, and missing token usage in Tuitui.
+
 ### Changes
 
 - Install story narrowed to two paths: download the release tarball, or track main via `github:`.

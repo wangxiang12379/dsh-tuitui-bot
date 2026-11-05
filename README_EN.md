@@ -91,7 +91,7 @@ dsh plugin --profile <name> remove @eayonlee/dsh-tuitui-bot
 | 📎 File delivery | `tuitui_send_file` tool plus automatic `present` deliverable delivery |
 | 🧭 Context awareness | Group history buffer, quoted-message parsing, sender dept path, mention cleaning |
 | 🧩 Slash commands | `/new` `/compact` `/model` `/preset` `/status` `/stop` …, synced as Tuitui quick commands |
-| 🧠 Native step reporting | Model/tool steps reported through `client.agent` for the Tuitui client UI |
+| 🧠 Native step reporting | Model/tool steps and available token usage reported through `client.agent` for the Tuitui client UI |
 | 🔐 Four access modes | open / allowlist / blocklist / disabled per scope, allow/deny lists entered as chips |
 | 🗣️ Smart interjection | In `smart` mode a model reads the group context and decides whether to speak up — **the judging prompt is fully editable in Settings** |
 | 🛠️ In-app settings | Credential binding plus every common option, saved to the profile and hot-reloaded; lists are chips, workspace is a dropdown |

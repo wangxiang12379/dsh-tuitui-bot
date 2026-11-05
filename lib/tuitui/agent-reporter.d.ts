@@ -9,7 +9,7 @@
  * - 上报是尽力而为：任何失败只记 debug，绝不影响消息主流程。
  * - 默认不上报完整工具参数/结果（可能含隐私），由 config.agentSteps.includeToolPayload 控制。
  */
-import type { TuituiAgentEventContext, TuituiBotClient } from '@qihoo/tuitui-bot-sdk';
+import type { TuituiAgentEventContext, TuituiAgentEventLlmUsage, TuituiBotClient } from '@qihoo/tuitui-bot-sdk';
 import type { ImTuituiConfig } from '../config.ts';
 import type { Logger, ReplyTarget } from '../types.ts';
 /** 一次工具调用的上报载荷 */
@@ -23,7 +23,7 @@ export interface ToolCallReport {
 /** 上报器接口（transport/tool-presenter 依赖） */
 export interface AgentStepReporter {
     messageReceived(target: ReplyTarget, messageId: string): void;
-    llmOutput(target: ReplyTarget, messageId: string, texts: readonly string[], thinking: string): void;
+    llmOutput(target: ReplyTarget, messageId: string, texts: readonly string[], thinking: string, usage?: TuituiAgentEventLlmUsage): void;
     toolStart(target: ReplyTarget, messageId: string, report: ToolCallReport): void;
     toolEnd(target: ReplyTarget, messageId: string, report: ToolCallReport): void;
     agentEnd(target: ReplyTarget, messageId: string): void;

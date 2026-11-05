@@ -107,7 +107,7 @@ dsh plugin --profile <name> remove @eayonlee/dsh-tuitui-bot
 | 📎 文件回传 | `tuitui_send_file` 工具 + `present` 交付物自动投递到当前会话 |
 | 🧭 上下文感知 | 群历史缓冲、引用消息解析、发送者部门路径、@ 标记清洗 |
 | 🧩 斜杠命令 | `/new` `/compact` `/model` `/preset` `/status` `/stop` 等，同步为推推快捷指令 |
-| 🧠 原生步骤上报 | 通过 `client.agent` 上报模型/工具调用，推推客户端原生展示执行过程 |
+| 🧠 原生步骤上报 | 通过 `client.agent` 上报模型/工具调用及可用的 Token 用量，推推客户端原生展示执行过程 |
 | 🔐 四档访问控制 | open / allowlist / blocklist / disabled，单聊 / 群聊 / 帖子分别配置，黑白名单以标签录入 |
 | 🗣️ 智能插话 | smart 模式下由模型读群聊上下文自行判断要不要开口，**判定提示词可在设置页整段改写** |
 | 🛠️ 端内设置页 | 凭据绑定 + 全部常用配置可视化编辑，保存即写 profile 并自动重载；名单是标签，工作区是下拉 |

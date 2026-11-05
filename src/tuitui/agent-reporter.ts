@@ -9,7 +9,7 @@
  * - 上报是尽力而为：任何失败只记 debug，绝不影响消息主流程。
  * - 默认不上报完整工具参数/结果（可能含隐私），由 config.agentSteps.includeToolPayload 控制。
  */
-import type { TuituiAgentEventContext, TuituiBotClient } from '@qihoo/tuitui-bot-sdk';
+import type { TuituiAgentEventContext, TuituiAgentEventLlmUsage, TuituiBotClient } from '@qihoo/tuitui-bot-sdk';
 import type { ImTuituiConfig } from '../config.ts';
 import type { Logger, ReplyTarget } from '../types.ts';
 import { describeApiError } from './client.ts';
@@ -27,7 +27,7 @@ export interface ToolCallReport {
 /** 上报器接口（transport/tool-presenter 依赖） */
 export interface AgentStepReporter {
   messageReceived(target: ReplyTarget, messageId: string): void;
-  llmOutput(target: ReplyTarget, messageId: string, texts: readonly string[], thinking: string): void;
+  llmOutput(target: ReplyTarget, messageId: string, texts: readonly string[], thinking: string, usage?: TuituiAgentEventLlmUsage): void;
   toolStart(target: ReplyTarget, messageId: string, report: ToolCallReport): void;
   toolEnd(target: ReplyTarget, messageId: string, report: ToolCallReport): void;
   agentEnd(target: ReplyTarget, messageId: string): void;
@@ -76,6 +76,7 @@ class TuituiAgentStepReporter implements AgentStepReporter {
   private readonly client: TuituiBotClient;
   private readonly config: ImTuituiConfig;
   private readonly logger: Logger;
+  private readonly contexts = new Map<string, TuituiAgentEventContext>();
 
   public constructor(client: TuituiBotClient, config: ImTuituiConfig, logger: Logger) {
     this.client = client;
@@ -89,9 +90,9 @@ class TuituiAgentStepReporter implements AgentStepReporter {
     });
   }
 
-  public llmOutput(target: ReplyTarget, messageId: string, texts: readonly string[], thinking: string): void {
+  public llmOutput(target: ReplyTarget, messageId: string, texts: readonly string[], thinking: string, usage: TuituiAgentEventLlmUsage = {}): void {
     this.report('llm_output', target, messageId, (context) => {
-      this.client.agent.report.llm_output(context, { assistantTexts: texts, thinking, usage: {} });
+      this.client.agent.report.llm_output(context, { assistantTexts: texts, thinking, usage });
     });
   }
 
@@ -122,6 +123,11 @@ class TuituiAgentStepReporter implements AgentStepReporter {
     this.report('agent_end', target, messageId, (context) => {
       this.client.agent.report.agent_end(context);
     });
+    this.contexts.delete(this.contextKey(target, messageId));
+  }
+
+  private contextKey(target: ReplyTarget, messageId: string): string {
+    return JSON.stringify([target.scope, target.targetId, target.channelId, target.postId, target.parentPostId, messageId]);
   }
 
   /**
@@ -137,9 +143,17 @@ class TuituiAgentStepReporter implements AgentStepReporter {
     action: (context: TuituiAgentEventContext) => void,
   ): void {
     if (!this.config.agentSteps.enabled) return;
-    const context = buildAgentContext(this.client, target, messageId);
-    if (!context) return;
+    const key = this.contextKey(target, messageId);
+    let context = this.contexts.get(key);
     try {
+      if (!context) {
+        context = buildAgentContext(this.client, target, messageId);
+        if (!context) return;
+        this.contexts.set(key, context);
+        if (event !== 'message_received') this.client.agent.report.message_received(context);
+      } else if (event === 'message_received') {
+        return;
+      }
       action(context);
     } catch (error) {
       this.logger.debug?.(`agent step report failed (event=${event}): ${describeApiError(error)}`);

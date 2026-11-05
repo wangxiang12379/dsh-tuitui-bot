@@ -367,8 +367,19 @@ describe('OutboundRouter: 工具调用展示与步骤上报', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(reporter.llmOutput).toHaveBeenCalledWith(c2cTarget, 'msg1', ['answer', 'more'], '');
+    expect(reporter.llmOutput).toHaveBeenCalledWith(c2cTarget, 'msg1', ['answer', 'more'], '', {});
     expect(reporter.agentEnd).toHaveBeenCalledWith(c2cTarget, 'msg1');
+  });
+
+  it('将每次模型调用的 Token 用量上报，包括只有工具调用的空文本消息', () => {
+    const { outbound, reporter } = setup();
+    outbound.routeSessionEvent(sessionRef, {
+      type: 'assistant/message',
+      data: { message: { content: [] }, usage: { inputTokens: 9, outputTokens: 3, totalTokens: 15, cacheReadTokens: 3 } },
+    });
+    expect(reporter.llmOutput).toHaveBeenCalledWith(c2cTarget, 'msg1', [], '', {
+      input: 9, output: 3, total: 15, cacheRead: 3,
+    });
   });
 
   it('未提供上报器时一切照常（老环境降级）', async () => {
@@ -402,6 +413,19 @@ describe('OutboundRouter: deliverables/presented', () => {
   });
   const turnEnd = { type: 'turn/end', data: { reason: { kind: 'stop' } } };
   const record = createRecord(c2cTarget);
+
+  it('交付文件失败时仍结束原任务，且不误结束后续消息的任务', async () => {
+    const deliver = vi.fn().mockRejectedValue(new Error('delivery failed'));
+    const activeRecord = createRecord(c2cTarget);
+    const { outbound, reporter } = setup({ record: activeRecord, deliverer: { deliver } });
+    outbound.routeSessionEvent(sessionRef, presentedEvent('c1', [{ path: '/tmp/a.png' }]));
+    outbound.routeSessionEvent(sessionRef, turnEnd);
+    activeRecord.replyTarget = { ...c2cTarget, msgId: 'next-message' };
+    await vi.advanceTimersByTimeAsync(0);
+    await Promise.resolve();
+    expect(reporter.agentEnd).toHaveBeenCalledWith(c2cTarget, 'msg1');
+    expect(reporter.agentEnd).toHaveBeenCalledTimes(1);
+  });
 
   it('轮末投递声明的文件，且在文本之后', async () => {
     const deliver = vi.fn().mockResolvedValue(undefined);
